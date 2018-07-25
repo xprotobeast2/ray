@@ -26,6 +26,14 @@ RUN apt-get update \
     && /opt/conda/bin/conda clean -y --all \
     && /opt/conda/bin/pip install \
         flatbuffers \
-        cython==0.27.3
+        cython==0.27.3 \
+        kubernetes \
+    && apt-get update \
+    && apt-get install -y apt-transport-https \
+    && curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add - \
+    && touch /etc/apt/sources.list.d/kubernetes.list \
+    && echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" | tee -a /etc/apt/sources.list.d/kubernetes.list \
+    && apt-get update \
+    && apt-get install -y kubectl
 
 ENV PATH "/opt/conda/bin:$PATH"

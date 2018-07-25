@@ -5,5 +5,5 @@ FROM ray-project/base-deps
 ADD ray.tar /ray
 ADD git-rev /ray/git-rev
 WORKDIR /ray/python
-RUN pip install -e .
+RUN pip install -e . --verbose
 WORKDIR /ray
