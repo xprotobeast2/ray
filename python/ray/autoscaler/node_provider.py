@@ -12,22 +12,28 @@ def import_aws():
     from ray.autoscaler.aws.node_provider import AWSNodeProvider
     return bootstrap_aws, AWSNodeProvider
 
-
 def import_gcp():
     from ray.autoscaler.gcp.config import bootstrap_gcp
     from ray.autoscaler.gcp.node_provider import GCPNodeProvider
     return bootstrap_gcp, GCPNodeProvider
 
+def import_k8s():
+    def return_it_back(config):
+        return config
+    from ray.autoscaler.k8s.node_provider import KubernetesNodeProvider
+    return return_it_back, KubernetesNodeProvider
 
 def load_aws_example_config():
     import ray.autoscaler.aws as ray_aws
     return os.path.join(os.path.dirname(ray_aws.__file__), "example-full.yaml")
 
-
 def load_gcp_example_config():
     import ray.autoscaler.gcp as ray_gcp
     return os.path.join(os.path.dirname(ray_gcp.__file__), "example-full.yaml")
 
+def load_k8s_example_config():
+    import ray.autoscaler.k8s as ray_k8s
+    return os.path.join(os.path.dirname(ray_k8s.__file__),"example-full.yaml")
 
 def import_external():
     """Mock a normal provider importer."""
@@ -42,7 +48,7 @@ NODE_PROVIDERS = {
     "aws": import_aws,
     "gcp": import_gcp,
     "azure": None,  # TODO: support more node providers
-    "kubernetes": None,
+    "kubernetes": import_k8s,
     "docker": None,
     "local_cluster": None,
     "external": import_external  # Import an external module
@@ -52,7 +58,7 @@ DEFAULT_CONFIGS = {
     "aws": load_aws_example_config,
     "gcp": load_gcp_example_config,
     "azure": None,  # TODO: support more node providers
-    "kubernetes": None,
+    "kubernetes": load_k8s_example_config,
     "docker": None,
     "local_cluster": None,
 }
