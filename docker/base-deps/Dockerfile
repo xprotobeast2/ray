@@ -15,16 +15,9 @@ RUN apt-get update \
         flex \
         bison \
     && apt-get clean \
-    && echo 'export PATH=/opt/conda/bin:$PATH' > /etc/profile.d/conda.sh \
-    && wget \
-        --quiet 'https://repo.continuum.io/archive/Anaconda2-4.2.0-Linux-x86_64.sh' \
-        -O /tmp/anaconda.sh \
-    && /bin/bash /tmp/anaconda.sh -b -p /opt/conda \
-    && rm /tmp/anaconda.sh \
-    && /opt/conda/bin/conda install -y \
-        libgcc \
-    && /opt/conda/bin/conda clean -y --all \
-    && /opt/conda/bin/pip install \
+    && apt-get install -y python python-dev python-pip python-virtualenv \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install \
         flatbuffers \
         cython==0.27.3 \
         kubernetes \
@@ -35,5 +28,3 @@ RUN apt-get update \
     && echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" | tee -a /etc/apt/sources.list.d/kubernetes.list \
     && apt-get update \
     && apt-get install -y kubectl
-
-ENV PATH "/opt/conda/bin:$PATH"

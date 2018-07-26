@@ -2,14 +2,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from os import path
+import os
 import yaml
 import random
 
 import kubernetes.client as k8sclient
 import kubernetes.config as k8sconfig
 
-from ray.autoscaler.node_provider import NodeProvider
+from ray.autoscaler.node_provider import NodeProvider, DEFAULT_CONFIGS
 from ray.autoscaler.tags import TAG_RAY_CLUSTER_NAME, TAG_RAY_NODE_NAME
 
 def to_k8s_format(tags):
@@ -21,31 +21,58 @@ def from_k8s_format(tags):
 class KubernetesNodeProvider(NodeProvider):
     def __init__(self, provider_config, cluster_name):
         NodeProvider.__init__(self, provider_config, cluster_name)
+        
+        # Hack until schema specifications are reformatted for k8s
+        default_config_loader = DEFAULT_CONFIGS.get("kubernetes")
+        config_path = default_config_loader()
+        with open(config_path) as f:
+            default_config = yaml.load(f)
+            provider_config = default_config["provider"]
         print(provider_config) 
+        
         # Extract necessary fields from provider config
         dep = provider_config["deployments"]
         self.namespace = provider_config["namespace"]
         svc = provider_config["services"]
-        # Load kube config
-        k8sconfig.load_kube_config()
-
-        # Initialize client api objects
-        self.client_v1 = k8sclient.CoreV1Api()
-        self.client_appsv1beta1 = k8sclient.AppsV1beta1Api() 
         
-        # Create service for Redis server
-        svc_resp = self.client_v1.create_namespaced_service(
-            namespace=self.namespace,
-            body=svc["redis-service"]
-            )
+        if "KUBERNETES_SERVICE_HOST" in os.environ:
+            # We're already in the k8s pod here
+            # Load in cluster config
+            k8sconfig.load_incluster_config()
 
-        # Deploy ray head
-        head_resp = self.client_appsv1beta1.create_namespaced_deployment(
+            # Initialize client api objects
+            self.client_v1 = k8sclient.CoreV1Api()
+            self.client_appsv1beta1 = k8sclient.AppsV1beta1Api() 
+        else:
+            # We're off cluster, we need to start a k8s cluster
+            try:
+                # Load the kube config
+                k8sconfig.load_kube_config()
+                
+                # Initialize client api objects
+                self.client_v1 = k8sclient.CoreV1Api()
+                self.client_appsv1beta1 = k8sclient.AppsV1beta1Api()
+
+                # Deploy a ray head 
+                head_resp = self.client_appsv1beta1.create_namespaced_deployment(
+                    namespace=self.namespace,
+                    body=dep["head"]
+                    )
+                 # Create service for Redis server
+                svc_resp = self.client_v1.create_namespaced_service(
+                    namespace=self.namespace,
+                    body=svc["redis-service"]
+                    )
+                
+            except FileNotFoundError:
+                # No k8s service or incorrectly configured
+                return
+
+        # Deploy ray worker
+        worker_resp = self.client_appsv1beta1.create_namespaced_deployment(
             namespace=self.namespace,
             body=dep["worker"]
             )
-
-        print("Deployment created. status='%s'" % str(resp.status))
 
         # Cache of node objects from the last nodes() call. This avoids
         # excessive DescribeInstances requests.
