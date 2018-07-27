@@ -42,8 +42,12 @@ provider:
           template:
             metadata:
               labels:
-                app: ray
-                ray-head: "true"
+                ray-node-name:
+                ray-node-type: head
+                ray-node-status:
+                ray-cluster-name: ray
+                ray-launch-config:
+                ray-runtime-config:
             spec:
               terminationGracePeriodSeconds: 10
               containers:
@@ -65,8 +69,12 @@ provider:
           template:
             metadata:
               labels:
-                app: ray
-                ray-worker: "true"
+                ray-node-name:
+                ray-node-type: worker
+                ray-node-status:
+                ray-cluster-name: ray
+                ray-launch-config:
+                ray-runtime-config:
             spec:
               terminationGracePeriodSeconds: 10
               containers:
@@ -86,7 +94,7 @@ provider:
           name: redis-service
         spec:
           selector:
-            ray-head: "true"
+            ray-node-type: head
           ports:
             - port: 6379
 

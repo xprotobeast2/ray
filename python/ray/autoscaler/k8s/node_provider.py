@@ -12,11 +12,6 @@ import kubernetes.config as k8sconfig
 from ray.autoscaler.node_provider import NodeProvider, DEFAULT_CONFIGS
 from ray.autoscaler.tags import TAG_RAY_CLUSTER_NAME, TAG_RAY_NODE_NAME
 
-def to_k8s_format(tags):
-    """ Convert ray node name tags to kubernetes pod labels """
-
-def from_k8s_format(tags):
-    """ Convert kubernetes pod labels to ray node name tags """
 
 class KubernetesNodeProvider(NodeProvider):
     def __init__(self, provider_config, cluster_name):
@@ -28,30 +23,26 @@ class KubernetesNodeProvider(NodeProvider):
         with open(config_path) as f:
             default_config = yaml.load(f)
             provider_config = default_config["provider"]
-        print(provider_config) 
         
         # Extract necessary fields from provider config
         dep = provider_config["deployments"]
         self.namespace = provider_config["namespace"]
         svc = provider_config["services"]
         
+        # Initialize client api objects
+        self.client_v1 = k8sclient.CoreV1Api()
+        self.client_appsv1beta1 = k8sclient.AppsV1beta1Api() 
+
         if "KUBERNETES_SERVICE_HOST" in os.environ:
             # We're already in the k8s pod here
             # Load in cluster config
             k8sconfig.load_incluster_config()
 
-            # Initialize client api objects
-            self.client_v1 = k8sclient.CoreV1Api()
-            self.client_appsv1beta1 = k8sclient.AppsV1beta1Api() 
         else:
             # We're off cluster, we need to start a k8s cluster
             try:
                 # Load the kube config
                 k8sconfig.load_kube_config()
-                
-                # Initialize client api objects
-                self.client_v1 = k8sclient.CoreV1Api()
-                self.client_appsv1beta1 = k8sclient.AppsV1beta1Api()
 
                 # Deploy a ray head 
                 head_resp = self.client_appsv1beta1.create_namespaced_deployment(
@@ -64,7 +55,7 @@ class KubernetesNodeProvider(NodeProvider):
                     body=svc["redis-service"]
                     )
                 
-            except FileNotFoundError:
+            except:
                 # No k8s service or incorrectly configured
                 return
 
@@ -76,7 +67,7 @@ class KubernetesNodeProvider(NodeProvider):
 
         # Cache of node objects from the last nodes() call. This avoids
         # excessive DescribeInstances requests.
-        self.cached_nodes = {}
+        self.cached_pods = []
 
         # Cache of ip lookups. We assume IPs never change once assigned.
         self.internal_ip_cache = {}
@@ -94,11 +85,25 @@ class KubernetesNodeProvider(NodeProvider):
             >>> provider.nodes({TAG_RAY_NODE_TYPE: "worker"})
             ["node-1", "node-2"]
         """
+        # # Select labels by tag filter
+        # label_selector = ",".join(
+        #     ["{tag}={val}".format(tag=k, val=v) 
+        #     for (k,v) in tag_filter.items()
+        # ])
+        # print(label_selector)
+        # # Make call to the k8s master having applied the filters
+        # v1_pod_list = self.client_v1.list_namespaced_pod(namespace=self.namespace, label_selector=label_selector)
+        # # Now apply the status filters
+        # pods = [pod for pod in v1_pod_list.items if pod.status.phase in ["Running", "Pending"]]
+        # # Cache pods
+        # self.cached_pods = {pod.metadata.name:pod for pod in pods}
+
+        # return [pods.metadata.name for pod in pods]
         raise NotImplementedError
 
     def is_running(self, node_id):
         """Return whether the specified node is running."""
-        raise NotImplementedError
+        
 
     def is_terminated(self, node_id):
         """Return whether the specified node is terminated."""
