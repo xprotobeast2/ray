@@ -28,15 +28,16 @@ class KubernetesNodeProvider(NodeProvider):
         dep = provider_config["deployments"]
         self.namespace = provider_config["namespace"]
         svc = provider_config["services"]
-        
-        # Initialize client api objects
-        self.client_v1 = k8sclient.CoreV1Api()
-        self.client_appsv1beta1 = k8sclient.AppsV1beta1Api() 
+    
 
         if "KUBERNETES_SERVICE_HOST" in os.environ:
             # We're already in the k8s pod here
             # Load in cluster config
             k8sconfig.load_incluster_config()
+
+            # Initialize client api objects
+            self.client_v1 = k8sclient.CoreV1Api()
+            self.client_appsv1 = k8sclient.AppsV1beta1Api()
 
         else:
             # We're off cluster, we need to start a k8s cluster
@@ -44,8 +45,12 @@ class KubernetesNodeProvider(NodeProvider):
                 # Load the kube config
                 k8sconfig.load_kube_config()
 
+                # Initialize client api objects
+                self.client_v1 = k8sclient.CoreV1Api()
+                self.client_appsv1 = k8sclient.AppsV1beta1Api()
+
                 # Deploy a ray head 
-                head_resp = self.client_appsv1beta1.create_namespaced_deployment(
+                head_resp = self.client_appsv1.create_namespaced_deployment(
                     namespace=self.namespace,
                     body=dep["head"]
                     )
@@ -60,7 +65,7 @@ class KubernetesNodeProvider(NodeProvider):
                 return
 
         # Deploy ray worker
-        worker_resp = self.client_appsv1beta1.create_namespaced_deployment(
+        worker_resp = self.client_appsv1.create_namespaced_deployment(
             namespace=self.namespace,
             body=dep["worker"]
             )
@@ -85,22 +90,21 @@ class KubernetesNodeProvider(NodeProvider):
             >>> provider.nodes({TAG_RAY_NODE_TYPE: "worker"})
             ["node-1", "node-2"]
         """
-        # # Select labels by tag filter
-        # label_selector = ",".join(
-        #     ["{tag}={val}".format(tag=k, val=v) 
-        #     for (k,v) in tag_filter.items()
-        # ])
-        # print(label_selector)
-        # # Make call to the k8s master having applied the filters
-        # v1_pod_list = self.client_v1.list_namespaced_pod(namespace=self.namespace, label_selector=label_selector)
-        # # Now apply the status filters
-        # pods = [pod for pod in v1_pod_list.items if pod.status.phase in ["Running", "Pending"]]
-        # # Cache pods
-        # self.cached_pods = {pod.metadata.name:pod for pod in pods}
+        # Select labels by tag filter
+        label_selector = ",".join(
+            ["{tag}={val}".format(tag=k, val=v) 
+            for (k,v) in tag_filter.items()
+        ])
+        print(label_selector)
+        # Make call to the k8s master having applied the filters
+        v1_pod_list = self.client_v1.list_namespaced_pod(namespace=self.namespace, label_selector=label_selector)
+        # Now apply the status filters
+        pods = [pod for pod in v1_pod_list.items if pod.status.phase in ["Running", "Pending"]]
+        # Cache pods
+        self.cached_pods = {pod.metadata.name:pod for pod in pods}
 
-        # return [pods.metadata.name for pod in pods]
-        raise NotImplementedError
-
+        return [pod.metadata.name for pod in pods]
+    
     def is_running(self, node_id):
         """Return whether the specified node is running."""
         
