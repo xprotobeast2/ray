@@ -29,74 +29,8 @@ idle_timeout_minutes: 5
 
 # Cloud-provider specific configuration.
 provider:
-    type: kubernetes    
+    type: kubernetes   
     namespace: default
-    deployments:
-      head:
-        apiVersion: apps/v1beta1 # for versions before 1.9.0 use apps/v1beta2
-        kind: Deployment
-        metadata:
-          name: ray-deployment-head
-        spec:
-          replicas: 1 # tells deployment to run 2 pods matching the template
-          template:
-            metadata:
-              labels:
-                ray-node-name:
-                ray-node-type: head
-                ray-node-status:
-                ray-cluster-name: ray
-                ray-launch-config:
-                ray-runtime-config:
-            spec:
-              terminationGracePeriodSeconds: 10
-              containers:
-              - name: ray-head
-                image: docker-registry.infra.cloudera.com/ray-deploy
-                command: ["/bin/bash"]
-                args: ["-c", "ray start --head --redis-port=6379; while true; do sleep 10; done"]
-                tty: true
-                stdin: true
-                ports:
-                  - containerPort: 6379
-      worker:
-        apiVersion: apps/v1beta1 # for versions before 1.9.0 use apps/v1beta2
-        kind: Deployment
-        metadata:
-          name: ray-worker-deployment 
-        spec:
-          replicas: 2 # tells deployment to run 2 pods matching the template
-          template:
-            metadata:
-              labels:
-                ray-node-name:
-                ray-node-type: worker
-                ray-node-status:
-                ray-cluster-name: ray
-                ray-launch-config:
-                ray-runtime-config:
-            spec:
-              terminationGracePeriodSeconds: 10
-              containers:
-              - name: ray-worker
-                image: docker-registry.infra.cloudera.com/ray-deploy
-                command: ["/bin/bash"]
-                args: ["-c", "ray start --redis-address=redis-service:$REDIS_SERVICE_SERVICE_PORT;while true; do sleep 10; done"]
-                tty: true
-                stdin: true
-                ports:
-                  - containerPort: 6379
-    services:
-      redis-service:
-        apiVersion: v1
-        kind: Service
-        metadata:
-          name: redis-service
-        spec:
-          selector:
-            ray-node-type: head
-          ports:
-            - port: 6379
 
 # How Ray will authenticate with newly launched nodes.
 auth:
@@ -110,10 +44,75 @@ auth:
 # Provider-specific config for the head node, e.g. instance type. By default
 # Ray will auto-configure unspecified fields such as subnets and ssh-keys.
 head_node:
+  deployment:
+    apiVersion: apps/v1beta1 # for versions before 1.9.0 use apps/v1beta2
+    kind: Deployment
+    metadata:
+      name: ray-head-deployment
+    spec:
+      replicas: 1 # tells deployment to run 2 pods matching the template
+      template:
+        metadata:
+          labels:
+            ray-node-name:
+            ray-node-type: head
+            ray-node-status:
+            ray-cluster-name: ray
+            ray-launch-config:
+            ray-runtime-config:
+        spec:
+          terminationGracePeriodSeconds: 10
+          containers:
+          - name: ray-head
+            image: docker-registry.infra.cloudera.com/ray-deploy
+            command: ["/bin/bash"]
+            args: ["-c", "ray start --head --redis-port=6379; while true; do sleep 10; done"]
+            tty: true
+            stdin: true
+            ports:
+              - containerPort: 6379
+  services:
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: redis-service
+    spec:
+      selector:
+        ray-node-type: head
+      ports:
+        - port: 6379
 
 # Provider-specific config for worker nodes, e.g. instance type. By default
 # Ray will auto-configure unspecified fields such as SubnetId and KeyName.
 worker_nodes:
+  deployment:
+    apiVersion: apps/v1beta1 # for versions before 1.9.0 use apps/v1beta2
+    kind: Deployment
+    metadata:
+      name: ray-worker-deployment 
+    spec:
+      replicas: 1 # tells deployment to run 2 pods matching the template
+      template:
+        metadata:
+          labels:
+            ray-node-name:
+            ray-node-type: worker
+            ray-node-status:
+            ray-cluster-name: ray
+            ray-launch-config:
+            ray-runtime-config:
+        spec:
+          terminationGracePeriodSeconds: 10
+          containers:
+          - name: ray-worker
+            image: docker-registry.infra.cloudera.com/ray-deploy
+            command: ["/bin/bash"]
+            args: ["-c", "ray start --redis-address=redis-service:$REDIS_SERVICE_SERVICE_PORT;while true; do sleep 10; done"]
+            tty: true
+            stdin: true
+            ports:
+              - containerPort: 6379
+  services:
 
 # Files or directories to copy to the head and worker nodes. The format is a
 # dictionary from REMOTE_PATH: LOCAL_PATH, e.g.

@@ -65,6 +65,7 @@ CLUSTER_CONFIG_SCHEMA = {
             "module": (str,
                        OPTIONAL),  # module, if using external node provider
             "project_id": (None, OPTIONAL),  # gcp project id, if using gcp
+            "namespace": (str, OPTIONAL) # k8s namespace if using k8s
         },
         REQUIRED),
 
