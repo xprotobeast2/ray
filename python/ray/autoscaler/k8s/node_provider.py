@@ -9,7 +9,7 @@ import random
 import kubernetes.client as k8sclient
 import kubernetes.config as k8sconfig
 
-from k8sclient.rest import ApiException
+from kubernetes.client.rest import ApiException
 
 from ray.autoscaler.node_provider import NodeProvider, DEFAULT_CONFIGS
 from ray.autoscaler.tags import TAG_RAY_CLUSTER_NAME, TAG_RAY_NODE_NAME
@@ -18,6 +18,7 @@ class KubernetesNodeProvider(NodeProvider):
     def __init__(self, provider_config, cluster_name):
         NodeProvider.__init__(self, provider_config, cluster_name)
 
+        print(provider_config)
         # Set namespace this cluster is running in
         self.namespace = provider_config["namespace"]
 
@@ -49,10 +50,6 @@ class KubernetesNodeProvider(NodeProvider):
         # excessive DescribeInstances requests.
         self.cached_pods = {}
         self.cached_deployments = {}
-
-        # Cache of ip lookups. We assume IPs never change once assigned.
-        self.internal_ip_cache = {}
-        self.external_ip_cache = {}
 
     def nodes(self, tag_filter):
         """Return a list of pod labels filtered by the specified tags dict.
@@ -137,7 +134,7 @@ class KubernetesNodeProvider(NodeProvider):
                     "spec": {"replicas": num_replicas}
                     })
             except ApiException as e:
-                print("Exception when trying to scale up %s to %d pods : %s" % (dep_name, num_replicas, e))
+                print("Exception when trying to scale up %s to %d pods : %s\n" % (dep_name, num_replicas, e))
         else:
             # No such deployment exists, fill in tags
             dep_body["metadata"]["labels"] = tags
@@ -147,7 +144,7 @@ class KubernetesNodeProvider(NodeProvider):
                     namespace=self.namespace,
                     body=dep_body)
             except ApiException as e:
-                print("Error trying to create deployment %s: %s" % (dep_name,e))
+                print("Error trying to create deployment %s: %s\n" % (dep_name,e))
 
         # If a service needs to be created do it here
         if svc_body:
@@ -157,7 +154,7 @@ class KubernetesNodeProvider(NodeProvider):
                     body=svc_body
                     )
             except ApiException as e:
-                print("Error trying to create service %s: %s" % (svc_body["metadata"]["name"],e))
+                print("Error trying to create service %s: %s\n" % (svc_body["metadata"]["name"],e))
 
 
     def set_node_tags(self, node_id, tags):
@@ -180,7 +177,13 @@ class KubernetesNodeProvider(NodeProvider):
 
     def terminate_node(self, node_id):
         """Terminates the specified node."""
-        if self
+        try:
+            self.client_v1.delete_namespaced_pod(
+                name=node_id,
+                namespace=self.namespace
+                )
+        except ApiException as e:
+            print("Error terminating pod %s : %s\n " % (node_id, e))
 
     def _node(self, node_id):
         """Check if pod info is cached otherwise request for pod by name"""
