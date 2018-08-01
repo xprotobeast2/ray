@@ -349,6 +349,8 @@ class StandardAutoscaler(object):
                 raise e
 
     def _update(self):
+        
+        print("Update called in Autoscaler")
         # Throttle autoscaling updates to this interval to avoid exceeding
         # rate limits on API calls.
         if time.time() - self.last_update_time < self.update_interval_s:

@@ -3,7 +3,7 @@ cluster_name: default
 
 # The minimum number of workers nodes to launch in addition to the head
 # node. This number should be >= 0.
-min_workers: 0
+min_workers: 1
 
 # The maximum number of workers nodes to launch in addition to the head
 # node. This takes precedence over min_workers.
@@ -66,11 +66,21 @@ head_node:
           - name: ray-head
             image: docker-registry.infra.cloudera.com/ray-deploy
             command: ["/bin/bash"]
-            args: ["-c", "ray start --head --redis-port=6379; while true; do sleep 10; done"]
+            args:
+              - "-c"
+              - >-
+              "ray start 
+                --head 
+                --redis-port=6379 
+                --object-manager-port=8076 
+                --autoscaling-config=~/ray_bootstrap_config.yaml; 
+              while true; do sleep 10; done"
             tty: true
             stdin: true
             ports:
-              - containerPort: 6379
+              - redis-port: 6379
+              - object-port: 8076
+              - tune-port: 4321
   services:
     apiVersion: v1
     kind: Service
@@ -80,7 +90,9 @@ head_node:
       selector:
         ray-node-type: head
       ports:
-        - port: 6379
+        - redis-port: 6379
+        - object-port: 8076
+        - tune-port: 4321
 
 # Provider-specific config for worker nodes, e.g. instance type. By default
 # Ray will auto-configure unspecified fields such as SubnetId and KeyName.
@@ -107,11 +119,19 @@ worker_nodes:
           - name: ray-worker
             image: docker-registry.infra.cloudera.com/ray-deploy
             command: ["/bin/bash"]
-            args: ["-c", "ray start --redis-address=redis-service:$REDIS_SERVICE_SERVICE_PORT;while true; do sleep 10; done"]
+            args:
+              - "-c" 
+              - >-
+              "ray start 
+                --redis-address=redis-service:$REDIS_SERVICE_SERVICE_PORT 
+                --object-manager-port=8086;
+              while true; do sleep 10; done"
             tty: true
             stdin: true
             ports:
-              - containerPort: 6379
+              - redis-port: 6379
+              - object-port: 8076
+              - tune-port: 4321
   services:
 
 # Files or directories to copy to the head and worker nodes. The format is a
