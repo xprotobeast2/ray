@@ -5,6 +5,7 @@ from __future__ import print_function
 import os
 import yaml
 import random
+import time
 
 import kubernetes.client as k8sclient
 import kubernetes.config as k8sconfig
@@ -14,14 +15,23 @@ from kubernetes.client.rest import ApiException
 from ray.autoscaler.node_provider import NodeProvider, DEFAULT_CONFIGS
 from ray.autoscaler.tags import TAG_RAY_CLUSTER_NAME, TAG_RAY_NODE_NAME
 
+MAX_POLLS = 12
+POLL_INTERVAL = 5
+
 class KubernetesNodeProvider(NodeProvider):
     def __init__(self, provider_config, cluster_name):
         NodeProvider.__init__(self, provider_config, cluster_name)
 
         print(provider_config)
         # Set namespace this cluster is running in
-        self.namespace = provider_config["namespace"]
-
+        try:    
+            self.namespace = provider_config["namespace"]
+        except KeyError as e:
+            print("Must provide namespace in config file\
+                when using KubernetesNodeProvider.\n %s" % e)
+            return
+        
+        # Check from where we are launching cluster     
         if "KUBERNETES_SERVICE_HOST" in os.environ:
             # We're already in the k8s pod here
             # Load in cluster config
@@ -68,7 +78,6 @@ class KubernetesNodeProvider(NodeProvider):
             ["{tag}={val}".format(tag=k, val=v) 
             for (k,v) in tag_filter.items()
         ])
-        print(label_selector)
         # Make call to the k8s master having applied the filters
         try:    
             # Get pods
@@ -118,7 +127,7 @@ class KubernetesNodeProvider(NodeProvider):
     def create_node(self, node_config, tags, count):
         """Creates a number of nodes within the namespace."""
 
-        dep_body = node_config["deployments"]
+        dep_body = node_config["deployment"]
         svc_body = node_config["services"]
         dep_name = dep_body["metadata"]["name"]
         
@@ -128,16 +137,22 @@ class KubernetesNodeProvider(NodeProvider):
             num_replicas = self.cached_deployments[dep_name].status.available_replicas + count
             try:    
                 self.client_appsv1.patch_namespaced_deployment(
+                    name=dep_name,
                     namespace=self.namespace,
                     body={
-                    "metadata": {"labels": tags},
-                    "spec": {"replicas": num_replicas}
+                    "spec": {
+                        "replicas": num_replicas,
+                        "template": {
+                            "metadata": {"labels": tags},
+                            }
+                        }
                     })
             except ApiException as e:
                 print("Exception when trying to scale up %s to %d pods : %s\n" % (dep_name, num_replicas, e))
         else:
+            num_replicas = count
             # No such deployment exists, fill in tags
-            dep_body["metadata"]["labels"] = tags
+            dep_body["spec"]["template"]["metadata"]["labels"] = tags
             try:    
                 # Now create a new deployment
                 self.client_appsv1.create_namespaced_deployment(
@@ -156,6 +171,7 @@ class KubernetesNodeProvider(NodeProvider):
             except ApiException as e:
                 print("Error trying to create service %s: %s\n" % (svc_body["metadata"]["name"],e))
 
+        self._wait_for_pod_startup(dep_name, num_replicas)
 
     def set_node_tags(self, node_id, tags):
         """Sets the tag values (string dict) for the specified node."""
@@ -180,10 +196,15 @@ class KubernetesNodeProvider(NodeProvider):
         try:
             self.client_v1.delete_namespaced_pod(
                 name=node_id,
-                namespace=self.namespace
+                namespace=self.namespace,
+                body = k8sclient.V1DeleteOptions()
                 )
         except ApiException as e:
             print("Error terminating pod %s : %s\n " % (node_id, e))
+
+        # Assume standard pod naming convention with [DEPLOYMENT-NAME]-[POD-TEMPLATE-HASH]
+        dep_name = node_id.rsplit('-',2)[0]
+        self._wait_for_pod_startup(dep_name, self.cached_deployments[dep_name].available_replicas - 1)
 
     def _node(self, node_id):
         """Check if pod info is cached otherwise request for pod by name"""
@@ -198,4 +219,28 @@ class KubernetesNodeProvider(NodeProvider):
             print("Exception when calling CoreV1Api->read_namespaced_pod: %s\n" % e)
 
         return node
+    
+    def _wait_for_pod_startup(self, deployment_name, target_replicas):
+        """ Polls deployment status until status is updated """
+        for _ in range(MAX_POLLS):
+            try:
+                dep_status = self.client_appsv1.read_namespaced_deployment_status(
+                    name=deployment_name,
+                    namespace=self.namespace
+                    )
+            except ApiException as e:
+                print("Exception when polling deployment status: %s\n" % e)
+
+            stats = dep_status.status
+            # Check termination conditions
+            if not stats.unavailable_replicas:
+                if stats.available_replicas == target_replicas:
+                    print("Deployment %s scaled to %d replicas.\n" %(deployment_name, stats.replicas))
+                    return
+            # Wait for a couple seconds
+            time.sleep(POLL_INTERVAL)
+
+        print("Error during creation/termination of node in\
+            Deployment: %s\n , Target: %d\n" % (deployment_name, target_replicas))
+
 

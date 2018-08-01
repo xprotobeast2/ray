@@ -114,8 +114,10 @@ def get_or_create_head_node(config, no_restart, yes):
     # Rewrite the auth config so that the head node can update the workers
     remote_key_path = "~/ray_bootstrap_key.pem"
     remote_config = copy.deepcopy(config)
-    remote_config["auth"]["ssh_private_key"] = remote_key_path
-
+    try:
+        remote_config["auth"]["ssh_private_key"] = remote_key_path
+    except KeyError as e:
+        return
     # Adjust for new file locations
     new_mounts = {}
     for remote_path in config["file_mounts"]:

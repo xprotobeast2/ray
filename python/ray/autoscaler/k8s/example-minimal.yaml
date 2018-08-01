@@ -8,6 +8,7 @@ max_workers: 2
 # Cloud-provider specific configuration.
 provider:
     type: kubernetes
+    namespace: default
     
 # How Ray will authenticate with newly launched nodes.
 auth:

@@ -50,7 +50,7 @@ head_node:
     metadata:
       name: ray-head-deployment
     spec:
-      replicas: 1 # tells deployment to run 2 pods matching the template
+      replicas: 1
       template:
         metadata:
           labels:
@@ -91,7 +91,7 @@ worker_nodes:
     metadata:
       name: ray-worker-deployment 
     spec:
-      replicas: 1 # tells deployment to run 2 pods matching the template
+      replicas: 1
       template:
         metadata:
           labels:
