@@ -28,4 +28,4 @@ RUN apt-get update \
     && echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" | tee -a /etc/apt/sources.list.d/kubernetes.list \
     && apt-get update \
     && apt-get install -y kubectl \
-    && apt-get install vim
+    && apt-get install -y vim
