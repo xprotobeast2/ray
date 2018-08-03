@@ -22,7 +22,6 @@ class KubernetesNodeProvider(NodeProvider):
     def __init__(self, provider_config, cluster_name):
         NodeProvider.__init__(self, provider_config, cluster_name)
 
-        print(provider_config)
         # Set namespace this cluster is running in
         try:    
             self.namespace = provider_config["namespace"]
@@ -59,9 +58,8 @@ class KubernetesNodeProvider(NodeProvider):
         # Cache of node objects from the last nodes() call. This avoids
         # excessive DescribeInstances requests.
         self.cached_pods = {}
-        self.cached_deployments = {}
 
-    def nodes(self, tag_filter):
+    def nodes(self, tag_filters):
         """Return a list of pod labels filtered by the specified tags dict.
 
         This list must not include terminated nodes. For performance reasons,
@@ -76,7 +74,7 @@ class KubernetesNodeProvider(NodeProvider):
         # Select labels by tag filter
         label_selector = ",".join(
             ["{tag}={val}".format(tag=k, val=v) 
-            for (k,v) in tag_filter.items()
+            for (k,v) in tag_filters.items()
         ])
         # Make call to the k8s master having applied the filters
         try:    
@@ -85,19 +83,15 @@ class KubernetesNodeProvider(NodeProvider):
                 namespace=self.namespace,
                 label_selector=label_selector)
 
-            # Get deployments
-            deployment_list = self.client_appsv1.list_namespaced_deployment(namespace=self.namespace)
-        
         except ApiException as e:
-            print("Exception when listing pods or deployments: %s\n" % e)
+            print("Exception when listing pods: %s\n" % e)
 
         # Now apply the status filters
         pods = [pod for pod in pod_list.items if pod.status.phase in ["Running", "Pending"]]
-        # Cache pods and available deployments
-        self.cached_pods = {pod.metadata.name:pod for pod in pods}
-        self.cached_deployments = {dep.metadata.name:dep for dep in deployment_list.items}
+        # Cache pods and available
+        self.cached_pods = {pod.metadata.labels[TAG_RAY_NODE_NAME]:pod for pod in pods}
 
-        return [pod.metadata.name for pod in pods]
+        return [pod.metadata.labels[TAG_RAY_NODE_NAME] for pod in pods]
     
     def is_running(self, node_id):
         """Return whether the specified node is running."""
@@ -116,50 +110,32 @@ class KubernetesNodeProvider(NodeProvider):
 
     def external_ip(self, node_id):
         """Returns the external ip of the given node."""
-        node = self._node(node_id)
-        return node.status.host_ip
+        return self.internal_ip(node_id)
+        # node = self._node(node_id)
+        # return node.status.host_ip
 
     def internal_ip(self, node_id):
         """Returns the internal ip (Ray ip) of the given node."""
         node = self._node(node_id)
-        return node.status.pod_ip
+        return node.status.host_ip
         
     def create_node(self, node_config, tags, count):
         """Creates a number of nodes within the namespace."""
 
-        dep_body = node_config["deployment"]
+        pod_body = node_config["pod"]
         svc_body = node_config["services"]
-        dep_name = dep_body["metadata"]["name"]
+
+        # Create the pod
+        pod_body["metadata"]["name"] = tags[TAG_RAY_NODE_NAME]
+        pod_body["metadata"]["labels"] = tags
         
-        # First check whether a deployment of the same name exists
-        if dep_name in self.cached_deployments:
-            # Such a deployment already exists, just scale it
-            num_replicas = self.cached_deployments[dep_name].status.available_replicas + count
-            try:    
-                self.client_appsv1.patch_namespaced_deployment(
-                    name=dep_name,
-                    namespace=self.namespace,
-                    body={
-                    "spec": {
-                        "replicas": num_replicas,
-                        "template": {
-                            "metadata": {"labels": tags},
-                            }
-                        }
-                    })
-            except ApiException as e:
-                print("Exception when trying to scale up %s to %d pods : %s\n" % (dep_name, num_replicas, e))
-        else:
-            num_replicas = count
-            # No such deployment exists, fill in tags
-            dep_body["spec"]["template"]["metadata"]["labels"] = tags
-            try:    
-                # Now create a new deployment
-                self.client_appsv1.create_namespaced_deployment(
-                    namespace=self.namespace,
-                    body=dep_body)
-            except ApiException as e:
-                print("Error trying to create deployment %s: %s\n" % (dep_name,e))
+        try:
+            self.client_v1.create_namespaced_pod(
+                namespace=self.namespace,
+                body=pod_body
+                )
+        except ApiException as e:
+            print("Error creating pod %s: %s\n" %(tags[TAG_RAY_NODE_NAME], e))
 
         # If a service needs to be created do it here
         if svc_body:
@@ -171,7 +147,7 @@ class KubernetesNodeProvider(NodeProvider):
             except ApiException as e:
                 print("Error trying to create service %s: %s\n" % (svc_body["metadata"]["name"],e))
 
-        self._wait_for_pod_startup(dep_name, num_replicas)
+        self._wait_for_pod_startup(tags[TAG_RAY_NODE_NAME])
 
     def set_node_tags(self, node_id, tags):
         """Sets the tag values (string dict) for the specified node."""
@@ -179,6 +155,7 @@ class KubernetesNodeProvider(NodeProvider):
         # Create the k8s patch body
         patch = {
         "metadata" : {
+            "name": node_id,
             "labels": tags
             }
         }
@@ -202,10 +179,6 @@ class KubernetesNodeProvider(NodeProvider):
         except ApiException as e:
             print("Error terminating pod %s : %s\n " % (node_id, e))
 
-        # Assume standard pod naming convention with [DEPLOYMENT-NAME]-[POD-TEMPLATE-HASH]
-        dep_name = node_id.rsplit('-',2)[0]
-        self._wait_for_pod_startup(dep_name, self.cached_deployments[dep_name].available_replicas - 1)
-
     def _node(self, node_id):
         """Check if pod info is cached otherwise request for pod by name"""
         if node_id in self.cached_pods:
@@ -220,27 +193,29 @@ class KubernetesNodeProvider(NodeProvider):
 
         return node
     
-    def _wait_for_pod_startup(self, deployment_name, target_replicas):
+    def _wait_for_pod_startup(self, node_id):
         """ Polls deployment status until status is updated """
         for _ in range(MAX_POLLS):
             try:
-                dep_status = self.client_appsv1.read_namespaced_deployment_status(
-                    name=deployment_name,
+                # Poll the pod status
+                target_pod = self.client_v1.read_namespaced_pod(
+                    name=node_id,
                     namespace=self.namespace
                     )
-            except ApiException as e:
-                print("Exception when polling deployment status: %s\n" % e)
 
-            stats = dep_status.status
-            # Check termination conditions
-            if not stats.unavailable_replicas:
-                if stats.available_replicas == target_replicas:
-                    print("Deployment %s scaled to %d replicas.\n" %(deployment_name, stats.replicas))
-                    return
-            # Wait for a couple seconds
-            time.sleep(POLL_INTERVAL)
+                # Check the pod status
+                if target_pod.status.phase in ["Running", "Pending"]:     
+                    if target_pod.status.container_statuses[0].ready:
+                        print("Pod %s has container ready" % node_id)
+                        return
 
-        print("Error during creation/termination of node in\
-            Deployment: %s\n , Target: %d\n" % (deployment_name, target_replicas))
+                # Wait for a couple seconds
+                time.sleep(POLL_INTERVAL)
+
+            except Exception as e:
+                print("Exception when polling pod status: %s\n" % e)
+
+        print("Error during creation/termination of node \
+            Name: %s\n" % pod_name)
 
 

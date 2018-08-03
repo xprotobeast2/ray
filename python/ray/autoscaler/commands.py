@@ -115,8 +115,7 @@ def get_or_create_head_node(config, no_restart, yes):
     remote_key_path = "~/ray_bootstrap_key.pem"
     remote_config = copy.deepcopy(config)
     remote_config["auth"]["ssh_private_key"] = remote_key_path
-    
-    return
+
     # Adjust for new file locations
     new_mounts = {}
     for remote_path in config["file_mounts"]:
@@ -141,7 +140,7 @@ def get_or_create_head_node(config, no_restart, yes):
         init_commands = (
             config["setup_commands"] + config["head_setup_commands"] +
             config["head_start_ray_commands"])
-
+    print(config["auth"])
     updater = NodeUpdaterProcess(
         head_node,
         config["provider"],

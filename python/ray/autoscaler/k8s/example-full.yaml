@@ -34,7 +34,7 @@ provider:
 
 # How Ray will authenticate with newly launched nodes.
 auth:
-    ssh_user: ubuntu
+    ssh_user: root
 # By default Ray creates a new private keypair, but you can also use your own.
 # If you do so, make sure to also set "KeyName" in the head and worker node
 # configurations below. This requires that you have added the key into the
@@ -44,44 +44,37 @@ auth:
 # Provider-specific config for the head node, e.g. instance type. By default
 # Ray will auto-configure unspecified fields such as subnets and ssh-keys.
 head_node:
-  deployment:
-    apiVersion: apps/v1beta1 # for versions before 1.9.0 use apps/v1beta2
-    kind: Deployment
+  pod:
+    apiVersion: v1
+    kind: Pod
     metadata:
-      name: ray-head-deployment
+      labels:
+        ray-node-name:
+        ray-node-type: head
+        ray-node-status:
+        ray-cluster-name: ray
+        ray-launch-config:
+        ray-runtime-config:
     spec:
-      replicas: 1
-      template:
-        metadata:
-          labels:
-            ray-node-name:
-            ray-node-type: head
-            ray-node-status:
-            ray-cluster-name: ray
-            ray-launch-config:
-            ray-runtime-config:
-        spec:
-          terminationGracePeriodSeconds: 10
-          containers:
-          - name: ray-head
-            image: docker-registry.infra.cloudera.com/ray-deploy
-            command: ["/bin/bash"]
-            args:
-              - "-c"
-              - >-
-              "ray start 
-                --head 
-                --redis-port=6379 
-                --object-manager-port=8076 
-                --autoscaling-config=~/ray_bootstrap_config.yaml; 
-              while true; do sleep 10; done"
-            tty: true
-            stdin: true
-            ports:
-              - redis-port: 6379
-              - object-port: 8076
-              - tune-port: 4321
-  services:
+      terminationGracePeriodSeconds: 10
+      containers:
+      - name: ray-head
+        image: docker-registry.infra.cloudera.com/ray-deploy
+        command: ["/bin/bash"]
+        args:
+          - -c
+          - ray start --head --redis-port=6379 --object-manager-port=8076 --autoscaling-config=/ray/python/ray/autoscaler/k8s/example-full.yaml ;while true; do sleep 10; done;
+        tty: true
+        stdin: true
+        ports:
+          - name: redis-port
+            containerPort: 6379
+          - name: object-port
+            containerPort: 8076
+          - name: tune-port
+            containerPort: 4321
+  
+  service:
     apiVersion: v1
     kind: Service
     metadata:
@@ -90,48 +83,43 @@ head_node:
       selector:
         ray-node-type: head
       ports:
-        - redis-port: 6379
-        - object-port: 8076
-        - tune-port: 4321
+        - name: redis-port
+          port: 6379
+        - name: object-port
+          port: 8076
+        - name: tune-port
+          port: 4321
 
 # Provider-specific config for worker nodes, e.g. instance type. By default
 # Ray will auto-configure unspecified fields such as SubnetId and KeyName.
 worker_nodes:
-  deployment:
-    apiVersion: apps/v1beta1 # for versions before 1.9.0 use apps/v1beta2
-    kind: Deployment
+  pod:
+    apiVersion: v1 # for versions before 1.9.0 use apps/v1beta2
+    kind: Pod
     metadata:
-      name: ray-worker-deployment 
+      labels:
+        ray-node-name:
+        ray-node-type: worker
+        ray-node-status:
+        ray-cluster-name: ray
+        ray-launch-config:
+        ray-runtime-config:
     spec:
-      replicas: 1
-      template:
-        metadata:
-          labels:
-            ray-node-name:
-            ray-node-type: worker
-            ray-node-status:
-            ray-cluster-name: ray
-            ray-launch-config:
-            ray-runtime-config:
-        spec:
-          terminationGracePeriodSeconds: 10
-          containers:
-          - name: ray-worker
-            image: docker-registry.infra.cloudera.com/ray-deploy
-            command: ["/bin/bash"]
-            args:
-              - "-c" 
-              - >-
-              "ray start 
-                --redis-address=redis-service:$REDIS_SERVICE_SERVICE_PORT 
-                --object-manager-port=8086;
-              while true; do sleep 10; done"
-            tty: true
-            stdin: true
-            ports:
-              - redis-port: 6379
-              - object-port: 8076
-              - tune-port: 4321
+      terminationGracePeriodSeconds: 10
+      containers:
+      - name: ray-worker
+        image: docker-registry.infra.cloudera.com/ray-deploy
+        command: ["/bin/bash"]
+        args:
+          - -c 
+          - ray start --redis-address=redis-service:$REDIS_SERVICE_SERVICE_PORT --object-manager-port=8076; while true; do sleep 10; done;
+        tty: true
+        stdin: true
+        ports:
+          - name: object-port
+            containerPort: 8076
+          - name: tune-port
+            containerPort: 4321
   services:
 
 # Files or directories to copy to the head and worker nodes. The format is a
