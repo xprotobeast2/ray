@@ -76,24 +76,24 @@ class NodeUpdater(object):
     def run(self):
         print("NodeUpdater: Updating {} to {}, logging to {}".format(
             self.node_id, self.runtime_hash, self.output_name))
-        try:
-            self.do_update()
-        except Exception as e:
-            error_str = str(e)
-            if hasattr(e, "cmd"):
-                error_str = "(Exit Status {}) {}".format(
-                    e.returncode, pretty_cmd(" ".join(e.cmd)))
-            print(
-                "NodeUpdater: Error updating {}"
-                "See {} for remote logs.".format(error_str, self.output_name),
-                file=self.stdout)
-            self.provider.set_node_tags(self.node_id,
-                                        {TAG_RAY_NODE_STATUS: "update-failed"})
-            if self.logfile is not None:
-                print("----- BEGIN REMOTE LOGS -----\n" +
-                      open(self.logfile.name).read() +
-                      "\n----- END REMOTE LOGS -----")
-            raise e
+        # try:
+        #     self.do_update()
+        # except Exception as e:
+        #     error_str = str(e)
+        #     if hasattr(e, "cmd"):
+        #         error_str = "(Exit Status {}) {}".format(
+        #             e.returncode, pretty_cmd(" ".join(e.cmd)))
+        #     print(
+        #         "NodeUpdater: Error updating {}"
+        #         "See {} for remote logs.".format(error_str, self.output_name),
+        #         file=self.stdout)self.provider.set_node_tags(self.node_id,
+            
+        #                                 {TAG_RAY_NODE_STATUS: "update-failed"})
+        #     if self.logfile is not None:
+        #         print("----- BEGIN REMOTE LOGS -----\n" +
+        #               open(self.logfile.name).read() +
+        #               "\n----- END REMOTE LOGS -----")
+        #     raise e
         self.provider.set_node_tags(
             self.node_id, {
                 TAG_RAY_NODE_STATUS: "up-to-date",

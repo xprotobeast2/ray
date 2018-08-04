@@ -13,7 +13,8 @@ import kubernetes.config as k8sconfig
 from kubernetes.client.rest import ApiException
 
 from ray.autoscaler.node_provider import NodeProvider, DEFAULT_CONFIGS
-from ray.autoscaler.tags import TAG_RAY_CLUSTER_NAME, TAG_RAY_NODE_NAME
+from ray.autoscaler.tags import TAG_RAY_CLUSTER_NAME, TAG_RAY_NODE_NAME, TAG_RAY_LAUNCH_CONFIG
+from ray.autoscaler.autoscaler import ConcurrentCounter
 
 MAX_POLLS = 12
 POLL_INTERVAL = 5
@@ -58,6 +59,7 @@ class KubernetesNodeProvider(NodeProvider):
         # Cache of node objects from the last nodes() call. This avoids
         # excessive DescribeInstances requests.
         self.cached_pods = {}
+        self.idx = 0
 
     def nodes(self, tag_filters):
         """Return a list of pod labels filtered by the specified tags dict.
@@ -89,9 +91,9 @@ class KubernetesNodeProvider(NodeProvider):
         # Now apply the status filters
         pods = [pod for pod in pod_list.items if pod.status.phase in ["Running", "Pending"]]
         # Cache pods and available
-        self.cached_pods = {pod.metadata.labels[TAG_RAY_NODE_NAME]:pod for pod in pods}
+        self.cached_pods = {pod.metadata.name:pod for pod in pods}
 
-        return [pod.metadata.labels[TAG_RAY_NODE_NAME] for pod in pods]
+        return [pod.metadata.name for pod in pods]
     
     def is_running(self, node_id):
         """Return whether the specified node is running."""
@@ -110,14 +112,13 @@ class KubernetesNodeProvider(NodeProvider):
 
     def external_ip(self, node_id):
         """Returns the external ip of the given node."""
-        return self.internal_ip(node_id)
-        # node = self._node(node_id)
-        # return node.status.host_ip
+        node = self._node(node_id)
+        return node.status.pod_ip
 
     def internal_ip(self, node_id):
         """Returns the internal ip (Ray ip) of the given node."""
         node = self._node(node_id)
-        return node.status.host_ip
+        return node.status.pod_ip
         
     def create_node(self, node_config, tags, count):
         """Creates a number of nodes within the namespace."""
@@ -126,16 +127,22 @@ class KubernetesNodeProvider(NodeProvider):
         svc_body = node_config["services"]
 
         # Create the pod
-        pod_body["metadata"]["name"] = tags[TAG_RAY_NODE_NAME]
-        pod_body["metadata"]["labels"] = tags
-        
-        try:
-            self.client_v1.create_namespaced_pod(
-                namespace=self.namespace,
-                body=pod_body
-                )
-        except ApiException as e:
-            print("Error creating pod %s: %s\n" %(tags[TAG_RAY_NODE_NAME], e))
+        for _ in range(count):
+            pod_name = tags[TAG_RAY_NODE_NAME] + '-' + str(self.idx)
+            
+            pod_body["metadata"]["name"] = pod_name
+            pod_body["metadata"]["labels"] = tags
+            
+            try:
+                self.client_v1.create_namespaced_pod(
+                    namespace=self.namespace,
+                    body=pod_body
+                    )
+                self.idx+=1
+            except ApiException as e:
+                print("Error creating pod %s: %s\n" %(pod_name, e))
+            
+            self._wait_for_pod_startup(pod_name)
 
         # If a service needs to be created do it here
         if svc_body:
@@ -146,8 +153,6 @@ class KubernetesNodeProvider(NodeProvider):
                     )
             except ApiException as e:
                 print("Error trying to create service %s: %s\n" % (svc_body["metadata"]["name"],e))
-
-        self._wait_for_pod_startup(tags[TAG_RAY_NODE_NAME])
 
     def set_node_tags(self, node_id, tags):
         """Sets the tag values (string dict) for the specified node."""
@@ -176,6 +181,7 @@ class KubernetesNodeProvider(NodeProvider):
                 namespace=self.namespace,
                 body = k8sclient.V1DeleteOptions()
                 )
+
         except ApiException as e:
             print("Error terminating pod %s : %s\n " % (node_id, e))
 

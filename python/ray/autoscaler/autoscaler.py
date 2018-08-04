@@ -349,8 +349,6 @@ class StandardAutoscaler(object):
                 raise e
 
     def _update(self):
-        
-        print("Update called in Autoscaler")
         # Throttle autoscaling updates to this interval to avoid exceeding
         # rate limits on API calls.
         if time.time() - self.last_update_time < self.update_interval_s:
@@ -359,7 +357,7 @@ class StandardAutoscaler(object):
         self.last_update_time = time.time()
         num_pending = self.num_launches_pending.value
         nodes = self.workers()
-        print(self.debug_string(nodes))
+        print(nodes)
         self.load_metrics.prune_active_ips(
             [self.provider.internal_ip(node_id) for node_id in nodes])
         target_workers = self.target_num_workers()
