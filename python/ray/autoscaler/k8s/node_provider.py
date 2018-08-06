@@ -39,7 +39,6 @@ class KubernetesNodeProvider(NodeProvider):
 
             # Initialize client api objects
             self.client_v1 = k8sclient.CoreV1Api()
-            self.client_appsv1 = k8sclient.AppsV1beta1Api()
 
         else:
             # We're off cluster, we need to start a k8s cluster
@@ -49,7 +48,6 @@ class KubernetesNodeProvider(NodeProvider):
 
                 # Initialize client api objects
                 self.client_v1 = k8sclient.CoreV1Api()
-                self.client_appsv1 = k8sclient.AppsV1beta1Api()
                 
             except Exception as e:
                 # No k8s service or incorrectly configured
@@ -79,7 +77,7 @@ class KubernetesNodeProvider(NodeProvider):
             for (k,v) in tag_filters.items()
         ])
         # Make call to the k8s master having applied the filters
-        try:    
+        try:
             # Get pods
             pod_list = self.client_v1.list_namespaced_pod(
                 namespace=self.namespace,

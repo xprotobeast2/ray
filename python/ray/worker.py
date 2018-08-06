@@ -39,6 +39,7 @@ from ray.utils import (
     random_string,
     thread_safe_client,
 )
+from ray.autoscaler.node_provider import DEFAULT_CONFIGS
 
 SCRIPT_MODE = 0
 WORKER_MODE = 1
@@ -1514,6 +1515,7 @@ def _init(address_info=None,
           plasma_directory=None,
           huge_pages=False,
           include_webui=True,
+          autoscale=False,
           use_raylet=None):
     """Helper method to connect to an existing Ray cluster or start a new one.
 
@@ -1624,6 +1626,14 @@ def _init(address_info=None,
         resources = _normalize_resource_arguments(
             num_cpus, num_gpus, resources, num_local_schedulers)
 
+        # Set up autoscaler
+        if autoscale:
+            # Autodetect environment first check for k8s node provider
+            if 'KUBERNETES_SERVICE_HOST' in os.environ:
+                autoscaling_config = DEFAULT_CONFIGS.get("kubernetes")()
+            else:
+                autoscaling_config = None
+                
         # Start the scheduler, object store, and some workers. These will be
         # killed by the call to shutdown(), which happens when the Python
         # script exits.
@@ -1643,6 +1653,7 @@ def _init(address_info=None,
             plasma_directory=plasma_directory,
             huge_pages=huge_pages,
             include_webui=include_webui,
+            autoscaling_config=autoscaling_config,
             use_raylet=use_raylet)
     else:
         if redis_address is None:
@@ -1731,6 +1742,7 @@ def init(redis_address=None,
          plasma_directory=None,
          huge_pages=False,
          include_webui=True,
+         autoscale=False,
          use_raylet=None):
     """Connect to an existing Ray cluster or start one and connect to it.
 
@@ -1835,6 +1847,7 @@ def init(redis_address=None,
         huge_pages=huge_pages,
         include_webui=include_webui,
         object_store_memory=object_store_memory,
+        autoscale=autoscale,
         use_raylet=use_raylet)
     for hook in _post_init_hooks:
         hook()
