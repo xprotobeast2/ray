@@ -109,7 +109,7 @@ class Monitor(object):
         self.local_scheduler_id_to_ip_map = {}
         self.load_metrics = LoadMetrics()
         if autoscaling_config:
-            self.autoscaler = StandardAutoscaler(autoscaling_config,
+            self.autoscaler = StandardAutoscaler(autoscaling_config,':'.join([redis_address,redis_port]),
                                                  self.load_metrics)
         else:
             self.autoscaler = None

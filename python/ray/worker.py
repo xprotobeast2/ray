@@ -1626,14 +1626,10 @@ def _init(address_info=None,
         resources = _normalize_resource_arguments(
             num_cpus, num_gpus, resources, num_local_schedulers)
 
+        autoscaling_config = None
         # Set up autoscaler
-        if autoscale:
-            # Autodetect environment first check for k8s node provider
-            if 'KUBERNETES_SERVICE_HOST' in os.environ:
-                autoscaling_config = DEFAULT_CONFIGS.get("kubernetes")()
-            else:
-                autoscaling_config = None
-                
+        if autoscale and 'KUBERNETES_SERVICE_HOST' in os.environ:
+            autoscaling_config = DEFAULT_CONFIGS.get("kubernetes")()
         # Start the scheduler, object store, and some workers. These will be
         # killed by the call to shutdown(), which happens when the Python
         # script exits.

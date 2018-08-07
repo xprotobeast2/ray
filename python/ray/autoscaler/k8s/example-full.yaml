@@ -25,7 +25,7 @@ docker:
 target_utilization_fraction: 0.8
 
 # If a node is idle for this many minutes, it will be removed.
-idle_timeout_minutes: 5
+idle_timeout_minutes: 1
 
 # Cloud-provider specific configuration.
 provider:
@@ -59,12 +59,12 @@ head_node:
     spec:
       terminationGracePeriodSeconds: 5
       containers:
-      - name: ray-head
+      - name: app
         image: docker-registry.infra.cloudera.com/ray-deploy
         command: ["/bin/bash"]
         args:
           - -c
-          - ray start --head --redis-port=6379 --object-manager-port=8076 --autoscaling-config=~/ray_bootstrap_config.yaml;while true; do sleep 10; done;
+          - ray start --head --redis-port=6379 --object-manager-port=8076 --autoscaling-config=/ray/python/ray/autoscaler/k8s/example-minimal.yaml;while true; do sleep 10; done;
         tty: true
         stdin: true
         ports:
@@ -84,12 +84,15 @@ head_node:
       selector:
         ray-node-type: head
       ports:
-        - name: redis-port
+        - name: redis
           port: 6379
-        - name: object-port
+          targetPort: redis-port
+        - name: plasma
           port: 8076
-        - name: tune-port
+          targetPort: object-port
+        - name: raytune
           port: 4321
+          targetPort: tune-port
 
 # Provider-specific config for worker nodes, e.g. instance type. By default
 # Ray will auto-configure unspecified fields such as SubnetId and KeyName.
@@ -108,19 +111,14 @@ worker_nodes:
     spec:
       terminationGracePeriodSeconds: 5
       containers:
-      - name: ray-worker
+      - name: app
         image: docker-registry.infra.cloudera.com/ray-deploy
         command: ["/bin/bash"]
         args:
           - -c 
-          - ray start --redis-address=redis-service:$REDIS_SERVICE_SERVICE_PORT --object-manager-port=8076; while true; do sleep 10; done;
+          - ray start --redis-address=redis-service:$REDIS_SERVICE_SERVICE_PORT_REDIS; while true; do sleep 10; done;
         tty: true
         stdin: true
-        ports:
-          - name: object-port
-            containerPort: 8076
-          - name: tune-port
-            containerPort: 4321
   services:
 
 # Files or directories to copy to the head and worker nodes. The format is a

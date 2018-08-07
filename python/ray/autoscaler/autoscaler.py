@@ -283,6 +283,7 @@ class StandardAutoscaler(object):
 
     def __init__(self,
                  config_path,
+                 redis_address=None,
                  load_metrics,
                  max_launch_batch=AUTOSCALER_MAX_LAUNCH_BATCH,
                  max_concurrent_launches=AUTOSCALER_MAX_CONCURRENT_LAUNCHES,
@@ -293,6 +294,7 @@ class StandardAutoscaler(object):
                  update_interval_s=AUTOSCALER_UPDATE_INTERVAL_S):
         self.config_path = config_path
         self.reload_config(errors_fatal=True)
+        self.config["head_node"]["redis_address"] = redis_address
         self.load_metrics = load_metrics
         self.provider = get_node_provider(self.config["provider"],
                                           self.config["cluster_name"])
@@ -357,7 +359,6 @@ class StandardAutoscaler(object):
         self.last_update_time = time.time()
         num_pending = self.num_launches_pending.value
         nodes = self.workers()
-        print(nodes)
         self.load_metrics.prune_active_ips(
             [self.provider.internal_ip(node_id) for node_id in nodes])
         target_workers = self.target_num_workers()
