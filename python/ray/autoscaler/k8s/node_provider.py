@@ -13,10 +13,10 @@ import kubernetes.config as k8sconfig
 from kubernetes.client.rest import ApiException
 
 from ray.autoscaler.node_provider import NodeProvider, DEFAULT_CONFIGS
-from ray.autoscaler.tags import TAG_RAY_CLUSTER_NAME, TAG_RAY_NODE_NAME, TAG_RAY_LAUNCH_CONFIG
+from ray.autoscaler.tags import TAG_RAY_CLUSTER_NAME, TAG_RAY_NODE_NAME, TAG_RAY_LAUNCH_CONFIG, TAG_RAY_NODE_TYPE
 from ray.autoscaler.autoscaler import ConcurrentCounter
 
-MAX_POLLS = 12
+MAX_POLLS = 100
 POLL_INTERVAL = 5
 REDIS_ACCESS_SERVICE_PORT = 6379
 
@@ -27,7 +27,7 @@ class KubernetesNodeProvider(NodeProvider):
 
         self.head_pod_spec = None
         self.redis_address = None
-
+        self.redis_service_created = False
         # Set namespace this cluster is running in
         try:    
             self.namespace = provider_config["namespace"]
@@ -49,7 +49,8 @@ class KubernetesNodeProvider(NodeProvider):
             try:
                 self.head_pod_spec = self.client_v1.read_namespaced_pod(
                     name=os.environ['HOSTNAME'],
-                    namespace=self.namespace)
+                    namespace=self.namespace,
+                    export=True)
             except:
                 print("Error retrieving head pod config: %s\n", e)
 
@@ -148,42 +149,55 @@ class KubernetesNodeProvider(NodeProvider):
             pod_body = self.head_pod_spec.to_dict()
             # get the image then swap out the containers
             image = pod_body["spec"]["containers"][0]["image"]
-            pod_body["spec"]["containers"][0].update(node_config["spec"]["containers"][0])
+            pod_body["spec"]["containers"][0].update(node_config["pod"]["spec"]["containers"][0])
             pod_body["spec"]["containers"][0]["image"] = image
+            # Secrets can't be mounted this way?
+            del pod_body["spec"]["volumes"]
 
-            # Set up redis service
-            if self.redis_address is None:
+            if not self.redis_service_created:
+                # Delete existing redis-services
+                try:
+                    self.client_v1.delete_namespaced_service(
+                        name='ray-redis-service',
+                        namespace=self.namespace,
+                        body = k8sclient.V1DeleteOptions())
+                    time.sleep(POLL_INTERVAL)
+                except ApiException as e:
+                    print("Error terminating service: %s\n " % e)
+
+                # Set up redis service
                 self.redis_address = node_config["redis_address"]
                 redis_port = self.redis_address.split(':')[1]
-            # Define a service port for workers to discover the redis server
-            svc_port = k8sclient.V1ServicePort(
-                name='redis',
-                port=REDIS_ACCESS_SERVICE_PORT,
-                target_port=redis_port)
-            
-            svc_body = k8sclient.V1Service(
-                spec=k8sclient.V1ServiceSpec(
-                    selector={TAG_RAY_NODE_TYPE: 'head'},
-                    ports=[svc_port]
+                
+                # Define a service port for workers to discover the redis server
+                svc_port = k8sclient.V1ServicePort(
+                    name='redis',
+                    port=REDIS_ACCESS_SERVICE_PORT,
+                    target_port=int(redis_port))
+                
+                svc_body = k8sclient.V1Service(
+                    metadata=k8sclient.V1ObjectMeta(name='ray-redis-service') ,
+                    spec=k8sclient.V1ServiceSpec(
+                        selector=pod_body["metadata"]["labels"],
+                        ports=[svc_port]
+                        )
                     )
-                )
-
         # If a service needs to be created do it here
         if svc_body:
             try:
                 self.client_v1.create_namespaced_service(
                     namespace=self.namespace,
-                    body=svc_body
-                    )
+                    body=svc_body)
+                self.redis_service_created = True
             except ApiException as e:
-                print("Error trying to create service %s: %s\n" % (svc_body["metadata"]["name"],e))
+                print("Error trying to create service: %s\n" % e)
 
         # Create the pod
         for _ in range(count):
             pod_name = tags[TAG_RAY_NODE_NAME] + '-' + str(self.idx)
             
             pod_body["metadata"]["name"] = pod_name
-            pod_body["metadata"]["labels"].update(tags)
+            pod_body["metadata"]["labels"] = tags
             
             try:
                 self.client_v1.create_namespaced_pod(
@@ -243,21 +257,23 @@ class KubernetesNodeProvider(NodeProvider):
     
     def _wait_for_pod_startup(self, node_id):
         """ Polls deployment status until status is updated """
-        target_pod = None
+        # Poll the pod status
+        target_pod = self.client_v1.read_namespaced_pod(
+            name=node_id,
+            namespace=self.namespace
+            )
         for _ in range(MAX_POLLS):
             try:
-                # Wait till the target pod comes up
-                while not target_pod:
-                    # Poll the pod status
+                # Wait for container to come up
+                while target_pod.status.container_statuses is None:
+                    time.sleep(1)
                     target_pod = self.client_v1.read_namespaced_pod(
                         name=node_id,
-                        namespace=self.namespace
-                        )
-                    time.sleep(POLL_INTERVAL)
+                        namespace=self.namespace)
 
-                # Wait for the container creation
-                while target_pod.container_statuses[0].state == 'Waiting':
-                    if target_pod.container_statuses[0].state.reason != 'ContainerCreating':
+                # Wait for iamge pull
+                while target_pod.status.container_statuses[0].state == 'Waiting':
+                    if target_pod.status.container_statuses[0].state.reason != 'ContainerCreating':
                         # Poll the pod status
                         target_pod = self.client_v1.read_namespaced_pod(
                             name=node_id,
@@ -267,18 +283,19 @@ class KubernetesNodeProvider(NodeProvider):
 
 
                 # Check the pod status
-                if target_pod.status.phase in ["Running", "Pending"]:     
-                    if target_pod.status.container_statuses[0].ready:
-                        print("Pod %s has container ready" % node_id)
-                        return
+                if target_pod.status.phase in ["Running"] \
+                and target_pod.status.container_statuses[0].ready:
+                    print("Pod %s has container ready" % node_id)
+                    return
 
                 # Wait for a couple seconds
                 time.sleep(POLL_INTERVAL)
 
             except Exception as e:
-                print("Exception when polling pod status: %s\n" % e)
+                print("Waiting for pod %s to come up %s\n" % (node_id,e))
+                time.sleep(POLL_INTERVAL)
 
-        print("Error during creation/termination of node \
+        print("Error during creation of node \
             Name: %s\n" % node_id)
 
 

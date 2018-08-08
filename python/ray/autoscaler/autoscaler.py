@@ -283,8 +283,8 @@ class StandardAutoscaler(object):
 
     def __init__(self,
                  config_path,
-                 redis_address=None,
                  load_metrics,
+                 redis_address=None,
                  max_launch_batch=AUTOSCALER_MAX_LAUNCH_BATCH,
                  max_concurrent_launches=AUTOSCALER_MAX_CONCURRENT_LAUNCHES,
                  max_failures=AUTOSCALER_MAX_NUM_FAILURES,
@@ -293,8 +293,8 @@ class StandardAutoscaler(object):
                  node_updater_cls=NodeUpdaterProcess,
                  update_interval_s=AUTOSCALER_UPDATE_INTERVAL_S):
         self.config_path = config_path
+        self.redis_address = redis_address
         self.reload_config(errors_fatal=True)
-        self.config["head_node"]["redis_address"] = redis_address
         self.load_metrics = load_metrics
         self.provider = get_node_provider(self.config["provider"],
                                           self.config["cluster_name"])
@@ -435,6 +435,7 @@ class StandardAutoscaler(object):
         try:
             with open(self.config_path) as f:
                 new_config = yaml.load(f.read())
+                new_config["worker_nodes"]["redis_address"] = self.redis_address
             validate_config(new_config)
             new_launch_hash = hash_launch_conf(new_config["worker_nodes"],
                                                new_config["auth"])

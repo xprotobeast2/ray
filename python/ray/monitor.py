@@ -108,9 +108,10 @@ class Monitor(object):
         # for updating the load metrics.
         self.local_scheduler_id_to_ip_map = {}
         self.load_metrics = LoadMetrics()
+        redis_parameter = ':'.join(list(map(str, [redis_address,redis_port])))
         if autoscaling_config:
-            self.autoscaler = StandardAutoscaler(autoscaling_config,':'.join([redis_address,redis_port]),
-                                                 self.load_metrics)
+            self.autoscaler = StandardAutoscaler(autoscaling_config,
+                                                 self.load_metrics, redis_address=redis_parameter)
         else:
             self.autoscaler = None
 

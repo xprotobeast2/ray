@@ -79,7 +79,7 @@ head_node:
     apiVersion: v1
     kind: Service
     metadata:
-      name: redis-service
+      name: ray-redis-service
     spec:
       selector:
         ray-node-type: head
@@ -116,7 +116,7 @@ worker_nodes:
         command: ["/bin/bash"]
         args:
           - -c 
-          - ray start --redis-address=redis-service:$REDIS_SERVICE_SERVICE_PORT_REDIS; while true; do sleep 10; done;
+          - ray start --redis-address=ray-redis-service:$RAY_REDIS_SERVICE_SERVICE_PORT_REDIS; while true; do sleep 10; done;
         tty: true
         stdin: true
   services:
