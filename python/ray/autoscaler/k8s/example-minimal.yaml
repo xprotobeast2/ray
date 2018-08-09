@@ -9,7 +9,8 @@ max_workers: 5
 
 # Cloud-provider specific configuration.
 provider:
-    type: kubernetes
+    type: external
+    module: ray.autoscaler.k8s.node_provider.KubernetesNodeProvider
     namespace: default
     
 # How Ray will authenticate with newly launched nodes.

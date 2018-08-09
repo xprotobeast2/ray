@@ -319,11 +319,12 @@ class StandardAutoscaler(object):
         self.num_launches_pending = ConcurrentCounter()
         max_batches = math.ceil(
             max_concurrent_launches / float(max_launch_batch))
-        for i in range(int(max_batches)):
-            node_launcher = NodeLauncher(
-                queue=self.launch_queue, pending=self.num_launches_pending)
-            node_launcher.daemon = True
-            node_launcher.start()
+        #for i in range(int(max_batches)):
+        node_launcher = NodeLauncher(
+            queue=self.launch_queue,
+            pending=self.num_launches_pending)
+        node_launcher.daemon = True
+        node_launcher.start()
 
         # Expand local file_mounts to allow ~ in the paths. This can't be done
         # earlier when the config is written since we might be on different

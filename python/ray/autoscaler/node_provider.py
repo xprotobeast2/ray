@@ -48,7 +48,6 @@ NODE_PROVIDERS = {
     "aws": import_aws,
     "gcp": import_gcp,
     "azure": None,  # TODO: support more node providers
-    "kubernetes": import_k8s,
     "docker": None,
     "local_cluster": None,
     "external": import_external  # Import an external module
